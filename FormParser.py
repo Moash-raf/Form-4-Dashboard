@@ -261,12 +261,7 @@ class Form4Parser():
             try:
                 with open(self.daily_filings_path, "r", encoding="utf-8") as f:
                     daily_filings = json.load(f)
-                print(type(daily_filings))
-                print(daily_filings)
-                print(type(new_filings))
-                print(new_filings)
                 daily_filings.extend(new_filings)
-                print(daily_filings)
                 with open(self.daily_filings_path, "w", encoding="utf-8") as f:
                     json.dump(daily_filings, f, indent=2, ensure_ascii=False)
                 print(f"Added {len(new_filings)} new filings to daily_filings list")
