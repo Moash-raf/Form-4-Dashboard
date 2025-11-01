@@ -1,32 +1,49 @@
-import streamlit as st
-import pandas as pd
-import json
 import os
-from datetime import date
+import json
+import pandas as pd
+import streamlit as st
+from datetime import datetime, date
+
+DATA_DIR = "data"
+
+# --- Load all daily filing JSON files ---
+all_filings = []
+for filename in os.listdir(DATA_DIR):
+    if filename.startswith("daily_filings_") and filename.endswith(".json"):
+        file_path = os.path.join(DATA_DIR, filename)
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                # Ensure it's a list of filings
+                if isinstance(data, list):
+                    # Extract date from filename
+                    date_str = filename.replace("daily_filings_", "").replace(".json", "")
+                    for filing in data:
+                        filing["file_date"] = date_str
+                    all_filings.extend(data)
+        except Exception as e:
+            st.warning(f"Failed to read {filename}: {e}")
+
+if not all_filings:
+    st.error("No filings found in data folder.")
+    st.stop()
+
+# --- Convert to DataFrame ---
+df = pd.DataFrame(all_filings)
+
+# --- Parse timestamp properly ---
+df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+df["Date"] = df["timestamp"].dt.date  # for easy filtering
 
 # === CONFIG ===
-BASE_PATH = "data"
 TODAY = date.today().strftime("%Y_%m_%d")
-DAILY_FILINGS_PATH = os.path.join(BASE_PATH, f"daily_filings_{TODAY}.json")
+DAILY_FILINGS_PATH = os.path.join(DATA_DIR, f"daily_filings_{TODAY}.json")
 
 st.set_page_config(page_title="Form 4 Dashboard", layout="wide")
 
 st.title("SEC Form 4 Dashboard")
 st.caption("Monitor insider transactions parsed from the SEC daily filings feed.\nUpdated hourly from 6 AM to 11 PM")
 
-# === LOAD DATA ===
-if not os.path.exists(DAILY_FILINGS_PATH):
-    st.warning("No daily filings found for today.")
-    st.stop()
-
-with open(DAILY_FILINGS_PATH, "r", encoding="utf-8") as f:
-    filings = json.load(f)
-
-if not filings:
-    st.warning("No filings available.")
-    st.stop()
-
-df = pd.DataFrame(filings)
 
 # === CREATE BUY/SELL COLUMN ===
 df["Buy/Sell"] = df["is_purchased"].apply(lambda x: "Buy" if x else "Sell")
@@ -58,8 +75,6 @@ df = df.rename(columns=rename_map)
 df["Shares"] = df["Shares"].apply(lambda x: f"{x:,.2f}")
 df["Price"] = df["Price"].apply(lambda x: f"{x:,.2f}")
 
-
-
 # === SIDEBAR FILTERS ===
 st.sidebar.header("Filters")
 symbol_filter = st.sidebar.multiselect("Ticker Symbol", sorted(df["Symbol"].dropna().unique()))
@@ -74,6 +89,27 @@ if owner_filter:
     filtered_df = filtered_df[filtered_df["Owner"].str.contains(owner_filter, case=False, na=False)]
 if buy_sell_filter != "All":
     filtered_df = filtered_df[filtered_df["Buy/Sell"] == buy_sell_filter]
+
+# === DATE RANGE FILTER ===
+min_date = df["Timestamp"].min().date()
+max_date = df["Timestamp"].max().date()
+
+selected_dates = st.sidebar.date_input(
+    "Filter by Date Range",
+    [min_date, max_date],
+    min_value=min_date,
+    max_value=max_date
+)
+
+filtered_df = df.copy()
+if len(selected_dates) == 2:
+    start_date, end_date = selected_dates
+    filtered_df = filtered_df[
+        (filtered_df["Timestamp"].dt.date >= start_date) &
+        (filtered_df["Timestamp"].dt.date <= end_date)
+    ]
+
+
 
 # === STYLING FUNCTION: highlight only Buy/Sell column ===
 def highlight_buy_sell(col):
